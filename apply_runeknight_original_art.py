@@ -107,7 +107,6 @@ rep(talent,'dmg += 2 + hero.pointsInTalent(RUNIC_EDGE);', '''dmg += 2 + hero.poi
                 dmg += hero.pointsInTalent(RUNIC_EXECUTION);
             }''')
 # Remove double semicolon introduced by replacing only the expression without semicolon.
-rep(talent,'            };\n        }\n\n\t\treturn dmg;', '            }\n        }\n\n\t\treturn dmg;')
 
 method='''    // Custom artwork indices for the Rune Knight; 0-16 are new abilities/talents.
     // 17-26 are new icons for the class's endgame armor ability talents.
