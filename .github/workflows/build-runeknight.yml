@@ -30,9 +30,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android build-tools and Android SDK
-        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Use GitHub runner's existing Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null || true
+            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+          else
+            echo "No sdkmanager found: checking preinstalled SDK platforms."
+            ls -la "$ANDROID_HOME/platforms" || true
+          fi
       - name: Build debug APK
         working-directory: game
         run: |
