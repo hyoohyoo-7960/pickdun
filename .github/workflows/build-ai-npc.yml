@@ -26,8 +26,6 @@ jobs:
           java-version: "21"
       - name: Configure Gradle cache
         uses: gradle/actions/setup-gradle@v4
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
       - name: Install Android platform 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Retrieve upstream game source
