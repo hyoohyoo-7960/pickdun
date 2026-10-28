@@ -1,0 +1,42 @@
+name: Build Shattered Pixel Dungeon Rune Knight mod
+on:
+  push:
+    branches:
+      - mod-shattered-v4.0.2-runeknight
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack mod source patch
+        run: base64 -d runeknight_patch.py.gz.b64 | gzip -d > apply_runeknight_v402.py
+      - name: Check out official v4.0.2 source
+        run: git clone --depth 1 --branch v4.0.2 https://github.com/00-Evan/shattered-pixel-dungeon.git game
+      - name: Apply Rune Knight changes
+        run: python3 apply_runeknight_v402.py game
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Build debug APK
+        working-directory: game
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :android:assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuneKnight-v4.0.2-debug-APK
+          path: game/android/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
