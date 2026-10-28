@@ -1,0 +1,199 @@
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ai/AiNpcChat.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ai/AiNpcChat.java
+@@ -30,7 +30,7 @@
+                     + "\n\n브라우저에서 승인을 마쳤는데 여전히 이 화면이면 콜백 주소를 확인하세요. 90초 후 자동으로 실패 처리됩니다.",
+                     "상태 확인", "브라우저 주소 붙여넣기", "진행 취소", "닫기") {
+                 @Override protected void onSelect(int i) {
+-                    if (i == 0) AiNpcChat.open(npc);
++                    if (i == 0) showDiagnostic(npc);
+                     if (i == 1) recoverCallback(npc);
+                     if (i == 2) {
+                         bridge.cancelSignIn();
+@@ -41,8 +41,9 @@
+         } else if (!bridge.connected()) {
+             GameScene.show(new WndOptions(npc.sprite(), npc.name(),
+                     "ChatGPT 계정으로 연결합니다. 대화 내용과 게임 상황이 OpenAI로 전송되고 사용량이 소모될 수 있습니다.",
+-                    "Continue with ChatGPT", "취소") {
++                    "Continue with ChatGPT", "최근 연결 상태 확인", "취소") {
+                 @Override protected void onSelect(int i) {
++                    if (i == 1) { showDiagnostic(npc); return; }
+                     if (i != 0) return;
+                     message(npc, "시스템 브라우저에서 ChatGPT 로그인을 완료해주세요.");
+                     bridge.signIn((value, error) -> runUi(() -> {
+@@ -52,6 +53,23 @@
+                 }
+             });
+         } else ask(npc);
++    }
++
++    /** A separate, visible diagnostic screen; never re-opens an identical options dialog. */
++    private static void showDiagnostic(final NPC npc) {
++        if (bridge == null) {
++            message(npc, "AI 로그인 모듈이 초기화되지 않았습니다.");
++            return;
++        }
++        final boolean isConnected = bridge.connected();
++        final boolean isWorking = bridge.loginInProgress();
++        String state = isConnected ? "연결됨" : (isWorking ? "로그인 처리 중" : "연결 안 됨");
++        String details = bridge.loginStatus();
++        message(npc, "[AI 로그인 상태 확인]\n"
++                + "연결 여부: " + state + "\n"
++                + "인증 작업: " + (isWorking ? "진행 중" : "대기/종료") + "\n"
++                + "마지막 단계 및 결과: " + trim(details, 360) + "\n\n"
++                + "이 화면에는 인증 코드나 액세스 토큰을 표시하지 않습니다.");
+     }
+ 
+     private static void recoverCallback(final NPC npc) {
+--- a/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/ai/AndroidChatGptBridge.java
++++ b/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/ai/AndroidChatGptBridge.java
+@@ -46,7 +46,7 @@
+     private final ExecutorService pool=Executors.newSingleThreadExecutor();
+     private final SecureRandom random=new SecureRandom();
+     private volatile boolean signingIn;
+-    private volatile String loginPhase = "대기 중";
++    private volatile String loginPhase = "아직 연결 시도 없음";
+     private volatile ServerSocket activeServer;
+     private volatile String callbackUri;
+     private volatile String expectedState;
+@@ -64,12 +64,20 @@
+         if (listener != null) {
+             try { listener.close(); } catch (Exception ignored) {}
+         }
+-        loginPhase = "취소했습니다. 다시 연결할 수 있습니다.";
++        setPhase("취소했습니다. 다시 연결할 수 있습니다.");
+     }
+ 
+     public AndroidChatGptBridge(AndroidLauncher activity) {
+         this.activity=activity;
+         store=new SecureSessionStore(activity.getApplicationContext());
++        loginPhase = activity.getSharedPreferences("spd_siwc_diagnostics_v1", 0)
++                .getString("latest_phase", "아직 연결 시도 없음");
++    }
++    /** Persist only sanitized status labels, never credentials, URLs, or tokens. */
++    private void setPhase(String status) {
++        loginPhase = status;
++        activity.getSharedPreferences("spd_siwc_diagnostics_v1", 0)
++                .edit().putString("latest_phase", status).apply();
+     }
+     @Override public boolean connected() {
+         try {
+@@ -90,16 +98,17 @@
+         }
+         signingIn = true;
+         loginStartedAt = System.currentTimeMillis();
+-        loginPhase = "로그인 화면 준비 중";
++        setPhase("로그인 화면 준비 중");
+         pool.execute(() -> {
+             try {
+                 performLogin();
+-                loginPhase = "로그인 완료. NPC에게 대화할 수 있습니다.";
++                setPhase("로그인 완료. NPC에게 대화할 수 있습니다.");
+                 callback.done("connected", null);
+             } catch (Exception e) {
+                 String stage = loginPhase;
+-                loginPhase = "연결 실패: " + stage;
+-                callback.done(null, safe(e, stage));
++                String reason = safe(e, stage);
++                setPhase("실패 단계: " + stage + " / 원인: " + reason);
++                callback.done(null, reason);
+             } finally {
+                 activeServer = null;
+                 callbackUri = null;
+@@ -159,13 +168,16 @@
+     private String performLogin() throws Exception {
+         String existing=store.read();
+         JSONObject previous=existing==null ? null : new JSONObject(existing);
+-        String client=previous==null ? "dynamic_agent_client" : previous.optString("client_id","dynamic_agent_client");
++        String rememberedClient=store.issuedClientId();
++        String client=previous == null
++                ? (rememberedClient == null ? "dynamic_agent_client" : rememberedClient)
++                : previous.optString("client_id", "dynamic_agent_client");
+         String verifier=secret(48), state=secret(24), nonce=secret(24);
+         byte[] hash=MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII));
+         String challenge=Base64.encodeToString(hash, Base64.URL_SAFE|Base64.NO_WRAP|Base64.NO_PADDING);
+         try (ServerSocket server=new ServerSocket(0,1,InetAddress.getByName("127.0.0.1"))) {
+             activeServer = server;
+-            loginPhase = "브라우저 승인 및 127.0.0.1 콜백 대기 중";
++            setPhase("브라우저 승인 및 127.0.0.1 콜백 대기 중");
+             server.setSoTimeout(90000); // callback must be delivered within 90 seconds; no indefinite wait
+             String redirect="http://127.0.0.1:"+server.getLocalPort()+"/auth/callback";
+             callbackUri = redirect;
+@@ -187,13 +199,13 @@
+                     Intent intent=new Intent(Intent.ACTION_VIEW, Uri.parse(uri.toString()));
+                     activity.startActivity(intent);
+                 } catch (Exception e) {
+-                    loginPhase = "브라우저를 열 수 없습니다. 기본 브라우저 설정을 확인하세요.";
++                    setPhase("브라우저를 열 수 없습니다. 기본 브라우저 설정을 확인하세요.");
+                     cancelSignIn();
+                 }
+             });
+             Map<String,String> result=new HashMap<>();
+             try (Socket socket=server.accept()) {
+-                loginPhase = "인증 응답을 받았습니다. 계정 권한 확인 중";
++                setPhase("브라우저 콜백 수신 완료. 인증 응답 검증 중");
+                 socket.setSoTimeout(10000);
+                 if (!socket.getInetAddress().isLoopbackAddress()) throw new SecurityException("Non-local OAuth callback");
+                 BufferedReader in=new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+@@ -224,16 +236,18 @@
+             if ("dynamic_agent_client".equals(client)) {
+                 if (issued==null || !issued.startsWith("oaiapp_")) throw new SecurityException("Issued client ID missing");
+                 client=issued;
++                // A transient invalid_grant must not cause another dynamic registration.
++                store.rememberIssuedClientId(client);
+             } else if (issued!=null && !issued.equals(client)) {
+                 throw new SecurityException("Client ID mismatch");
+             }
+-            loginPhase = "인증 코드를 토큰으로 교환하는 중";
++            setPhase("인증 코드를 토큰으로 교환하는 중");
+             JSONObject tokens=postForm(TOKEN, "grant_type="+enc("authorization_code")
+                     +"&client_id="+enc(client)+"&code="+enc(code)
+                     +"&code_verifier="+enc(verifier)+"&redirect_uri="+enc(redirect)
+                     +"&resource="+enc(RESOURCE));
+             String idToken=tokens.getString("id_token");
+-            loginPhase = "ID 토큰 서명 및 권한 검증 중";
++            setPhase("ID 토큰 서명 및 권한 검증 중");
+             JSONObject identity=OidcVerifier.verify(idToken, getText(JWKS,null),client,nonce);
+             if (previous!=null && previous.has("subject") && !previous.getString("subject").equals(identity.getString("sub")))
+                 throw new SecurityException("Unexpected account change");
+@@ -251,7 +265,7 @@
+             session.put("scopes",scopes);
+             // Persist the authenticated session BEFORE fetching models. A model-catalog
+             // network error must not roll back a successful OAuth sign-in.
+-            loginPhase = "암호화된 계정 세션 저장 중";
++            setPhase("암호화된 계정 세션 저장 중");
+             store.write(session.toString());
+             return null;
+         }
+@@ -345,7 +359,14 @@
+         try {
+             try(OutputStream out=c.getOutputStream()) {out.write(form.getBytes(StandardCharsets.UTF_8));}
+             int status=c.getResponseCode();
+-            if(status<200 || status>=300) throw new Exception("OAuth HTTP "+status);
++            if(status<200 || status>=300) {
++                String errorCode="";
++                try {
++                    String candidate = new JSONObject(readSmall(c.getErrorStream())).optString("error", "");
++                    if (candidate.matches("[a-zA-Z0-9_-]{1,64}")) errorCode = " (" + candidate + ")";
++                } catch (Exception ignored) { /* Never surface raw OAuth response bodies. */ }
++                throw new Exception("OAuth HTTP " + status + errorCode);
++            }
+             return new JSONObject(readSmall(c.getInputStream()));
+         } finally {c.disconnect();}
+     }
+--- a/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/ai/SecureSessionStore.java
++++ b/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/ai/SecureSessionStore.java
+@@ -23,6 +23,14 @@
+ 
+     SecureSessionStore(Context ctx) {
+         prefs = ctx.getSharedPreferences("spd_siwc_auth_v1", Context.MODE_PRIVATE);
++    }
++    /** Issued OAuth client ID is a registration identifier, not a bearer credential. */
++    String issuedClientId() { return prefs.getString("issued_client_id", null); }
++    void rememberIssuedClientId(String value) {
++        if (value == null || !value.startsWith("oaiapp_"))
++            throw new IllegalArgumentException("Invalid issued client ID");
++        if (!prefs.edit().putString("issued_client_id", value).commit())
++            throw new IllegalStateException("Failed to retain issued client ID");
+     }
+     String hostId() {
+         String id = prefs.getString("host_id", null);
