@@ -45,7 +45,7 @@ jobs:
           unzip -qq ai-npc-source.zip -d patch
           python3 patch/tools/apply_to_shattered.py spd
           python3 tools/add_starter_guide.py spd
-      - name: Give v0.2 a distinct package name and app label
+      - name: Give v0.4 an independent package label
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -53,12 +53,12 @@ jobs:
           a = android.read_text()
           old = 'applicationIdSuffix ".indev"'
           assert old in a
-          android.write_text(a.replace(old, 'applicationIdSuffix ".ainpc03"', 1))
+          android.write_text(a.replace(old, 'applicationIdSuffix ".ainpc04"', 1))
           base = Path("spd/build.gradle")
           b = base.read_text()
           old = "appName = 'Shattered Pixel Dungeon'"
           assert old in b
-          base.write_text(b.replace(old, "appName = 'Shattered PD AI NPC v0.3'", 1))
+          base.write_text(b.replace(old, "appName = 'Shattered PD AI NPC v0.4'", 1))
           PY
       - name: Compile Android debug APK
         working-directory: spd
@@ -72,7 +72,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ShatteredPD-AI-NPC-LoginFix-v0.3-debug-APK
+          name: ShatteredPD-AI-NPC-LoginDiag-v0.4-debug-APK
           path: spd/android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
