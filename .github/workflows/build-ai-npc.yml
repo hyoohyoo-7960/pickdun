@@ -1,0 +1,56 @@
+name: Build Shattered Pixel Dungeon ChatGPT AI NPC APK
+
+on:
+  push:
+    branches:
+      - build/shattered-chatgpt-ai-npc
+    paths:
+      - "ai-npc-patch.b64"
+      - ".github/workflows/build-ai-npc.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout the temporary build branch
+        uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Configure Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Retrieve upstream game source
+        run: git clone --depth 1 https://github.com/00-Evan/shattered-pixel-dungeon.git spd
+      - name: Apply AI NPC source patch
+        run: |
+          base64 -d ai-npc-patch.b64 > ai-npc-source.zip
+          mkdir patch
+          unzip -qq ai-npc-source.zip -d patch
+          python3 patch/tools/apply_to_shattered.py spd
+      - name: Compile Android debug APK
+        working-directory: spd
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :android:assembleDebug --no-daemon --stacktrace
+      - name: Inspect output files
+        if: success()
+        run: find spd/android/build/outputs/apk -type f -name '*.apk' -print -exec sha256sum {} \;
+      - name: Publish unsigned-for-release but debug-signed APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShatteredPD-ChatGPT-AI-NPC-debug-APK
+          path: spd/android/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
