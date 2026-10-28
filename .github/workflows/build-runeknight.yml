@@ -1,51 +1,45 @@
-name: Build Shattered Pixel Dungeon Rune Knight mod
+name: Build Shattered Pixel Dungeon Rune Knight v4.0.2
 on:
   push:
-    branches:
-      - mod-shattered-v4.0.2-runeknight
+    branches: [mod-shattered-v4.0.2-runeknight]
   workflow_dispatch:
 
 permissions:
   contents: read
-
 jobs:
-  android-apk:
+  android:
+    name: Compile Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Unpack mod source patch
-        run: base64 -d runeknight_patch.py.gz.b64 | gzip -d > apply_runeknight_v402.py
-      - name: Check out official v4.0.2 source
-        run: git clone --depth 1 --branch v4.0.2 https://github.com/00-Evan/shattered-pixel-dungeon.git game
-      - name: Apply Rune Knight changes
-        run: python3 apply_runeknight_v402.py game
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Pillow for original mod artwork
+        run: python -m pip install pillow==11.3.0
+      - name: Check out upstream Shattered Pixel Dungeon v4.0.2
+        run: git clone --branch v4.0.2 --depth 1 https://github.com/00-Evan/shattered-pixel-dungeon.git game
+      - name: Generate fresh Rune Knight resources
+        run: python make_runeknight_assets.py generated-assets
+      - name: Apply game code and unique character artwork
+        run: |
+          python apply_runeknight_v402.py game
+          python apply_runeknight_original_art.py game generated-assets
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - name: Use preinstalled Android SDK
-        run: echo "ANDROID_HOME=$ANDROID_HOME"
-      - name: Install Android SDK 36
-        run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
-          echo "Using SDK manager: $SDKMANAGER"
-          if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null || true
-            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
-          else
-            echo "No sdkmanager found, Gradle will use the preinstalled SDK packages."
-            ls -la "$ANDROID_HOME/platforms" || true
-          fi
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build-tools and Android SDK
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build debug APK
         working-directory: game
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :android:assembleDebug
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: RuneKnight-v4.0.2-debug-APK
+          name: RuneKnight-Shattered-v4.0.2-APK
           path: game/android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
