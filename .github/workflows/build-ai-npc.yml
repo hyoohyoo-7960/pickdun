@@ -6,6 +6,7 @@ on:
       - build/shattered-chatgpt-ai-npc
     paths:
       - "ai-npc-patch.b64"
+      - "tools/diagnostics_v05.patch"
       - ".github/workflows/build-ai-npc.yml"
   workflow_dispatch:
 
