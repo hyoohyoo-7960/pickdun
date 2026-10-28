@@ -81,7 +81,8 @@ def pixel_character(tier, frame):
         d.point((6,10),fill=BLUE)
     return im
 
-atlas=Image.new('RGBA',(12*21,15*7))
+# Match the upstream 256x128 hero atlas, preserving 21x7 original frames.
+atlas=Image.new('RGBA',(256,128))
 for tier in range(7):
     for frame in range(21):
         atlas.alpha_composite(pixel_character(tier,frame),(frame*12,tier*15))
@@ -177,7 +178,7 @@ try: title=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.
 except OSError:title=ImageFont.load_default()
 for text,y in [('RUNE KNIGHT - ORIGINAL IN-GAME SPRITES',18),('7 armor tiers | 21 frames per tier (idle, run, death, attack, cast, fly, read)',65),('Original talent icons / Rune Focus',320)]:
     draw.text((32,y),text,fill=(182,228,248),font=title)
-preview.paste(atlas.resize((1008,420),resample=Image.Resampling.NEAREST).crop((0,0,1008,220)),(30,102),atlas.resize((1008,420),resample=Image.Resampling.NEAREST).crop((0,0,1008,220)))
+preview.paste(atlas.crop((0,0,252,105)).resize((1008,420),resample=Image.Resampling.NEAREST).crop((0,0,1008,220)),(30,102),atlas.crop((0,0,252,105)).resize((1008,420),resample=Image.Resampling.NEAREST).crop((0,0,1008,220)))
 preview.paste(icons.resize((384,96),resample=Image.Resampling.NEAREST),(32,363),icons.resize((384,96),resample=Image.Resampling.NEAREST))
 preview.paste(focus.resize((96,96),resample=Image.Resampling.NEAREST),(474,365),focus.resize((96,96),resample=Image.Resampling.NEAREST))
 preview.save(OUT/'runeknight-assets-preview.png')
