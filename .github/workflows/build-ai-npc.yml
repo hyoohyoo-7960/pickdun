@@ -45,6 +45,21 @@ jobs:
           unzip -qq ai-npc-source.zip -d patch
           python3 patch/tools/apply_to_shattered.py spd
           python3 tools/add_starter_guide.py spd
+      - name: Give v0.2 a distinct package name and app label
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          android = Path("spd/android/build.gradle")
+          a = android.read_text()
+          old = 'applicationIdSuffix ".indev"'
+          assert old in a
+          android.write_text(a.replace(old, 'applicationIdSuffix ".ainpc02"', 1))
+          base = Path("spd/build.gradle")
+          b = base.read_text()
+          old = "appName = 'Shattered Pixel Dungeon'"
+          assert old in b
+          base.write_text(b.replace(old, "appName = 'Shattered PD AI NPC v0.2'", 1))
+          PY
       - name: Compile Android debug APK
         working-directory: spd
         run: |
